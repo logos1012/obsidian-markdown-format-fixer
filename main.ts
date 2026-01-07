@@ -111,7 +111,7 @@ export default class MarkdownFormatFixerPlugin extends Plugin {
 			},
 			body: JSON.stringify({
 				model: 'claude-3-haiku-20240307',
-				max_tokens: 4096,
+				max_tokens: 8192,
 				messages: [
 					{
 						role: 'user',
@@ -145,7 +145,18 @@ ${content}`
 		}
 
 		const data = response.json;
-		return data.content[0].text;
+
+		// 응답 유효성 검사
+		if (!data || !data.content || !Array.isArray(data.content) || data.content.length === 0) {
+			throw new Error('API 응답 형식이 올바르지 않습니다');
+		}
+
+		const textContent = data.content[0];
+		if (!textContent || textContent.type !== 'text' || typeof textContent.text !== 'string') {
+			throw new Error('API 응답에서 텍스트를 찾을 수 없습니다');
+		}
+
+		return textContent.text;
 	}
 }
 
