@@ -101,6 +101,13 @@ export default class MarkdownFormatFixerPlugin extends Plugin {
 	 * Claude API를 사용하여 마크다운 수정
 	 */
 	async fixWithClaude(content: string): Promise<string> {
+		const systemPrompt = `옵시디안에서 읽을 마크다운 문서를 깔끔하게 정리해주세요.
+
+문제: 볼드(**)나 이탤릭(*)처리에서 띄어쓰기가 잘못 들어가 서식이 제대로 작동하지 않습니다.
+해결: 닫는 기호 앞의 불필요한 공백을 제거하고, 이탤릭은 볼드로 통일해주세요.
+
+수정된 마크다운만 출력하세요. 설명 없이, 줄 구조 그대로 유지.`;
+
 		const response = await requestUrl({
 			url: 'https://api.anthropic.com/v1/messages',
 			method: 'POST',
@@ -111,29 +118,12 @@ export default class MarkdownFormatFixerPlugin extends Plugin {
 			},
 			body: JSON.stringify({
 				model: 'claude-3-haiku-20240307',
-				max_tokens: 8192,
+				max_tokens: 4096,
+				system: systemPrompt,
 				messages: [
 					{
 						role: 'user',
-						content: `다음 마크다운 텍스트에서 잘못된 서식을 수정해주세요. 수정이 필요한 패턴:
-
-1. *텍스트: * → **텍스트:**
-2. *텍스트 * → **텍스트**
-3. _텍스트: _ → **텍스트:**
-4. _텍스트 _ → **텍스트**
-5. **텍스트: ** → **텍스트:**
-6. **텍스트 ** → **텍스트**
-7. \`텍스트: \` → \`텍스트:\`
-8. \`텍스트 \` → \`텍스트\`
-
-주의사항:
-- 코드 블록(\`\`\`)안의 내용은 수정하지 마세요
-- 원본 텍스트의 구조와 내용을 유지하세요
-- 오직 위의 패턴만 수정하세요
-- 수정된 마크다운만 출력하고, 설명은 추가하지 마세요
-
-마크다운:
-${content}`
+						content: content
 					}
 				]
 			})
