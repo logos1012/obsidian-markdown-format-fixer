@@ -74,52 +74,52 @@ export default class MarkdownFormatFixerPlugin extends Plugin {
 			return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
 		});
 
-		// 패턴 1: *text: * → **text:**
-		fixed = fixed.replace(/\*([^*\n]+?):\s*\*/g, (match) => {
+		// 패턴 5: **text: ** → **text:** (먼저 처리)
+		fixed = fixed.replace(/\*\*([^*\n]+?):\s+\*\*/g, (match, p1) => {
 			count++;
-			return match.replace(/\*([^*\n]+?):\s*\*/g, '**$1:**');
-		});
-
-		// 패턴 2: *text * (콜론 없음) → **text**
-		fixed = fixed.replace(/\*([^*:\n]+?)\s+\*/g, (match) => {
-			count++;
-			return match.replace(/\*([^*:\n]+?)\s+\*/g, '**$1**');
-		});
-
-		// 패턴 3: _text: _ → **text:**
-		fixed = fixed.replace(/_([^_\n]+?):\s*_/g, (match) => {
-			count++;
-			return match.replace(/_([^_\n]+?):\s*_/g, '**$1:**');
-		});
-
-		// 패턴 4: _text _ (콜론 없음) → **text**
-		fixed = fixed.replace(/_([^_:\n]+?)\s+_/g, (match) => {
-			count++;
-			return match.replace(/_([^_:\n]+?)\s+_/g, '**$1**');
-		});
-
-		// 패턴 5: **text: ** → **text:**
-		fixed = fixed.replace(/\*\*([^*\n]+?):\s*\*\*/g, (match) => {
-			count++;
-			return match.replace(/\*\*([^*\n]+?):\s*\*\*/g, '**$1:**');
+			return `**${p1}:**`;
 		});
 
 		// 패턴 6: **text ** (콜론 없음) → **text**
-		fixed = fixed.replace(/\*\*([^*:\n]+?)\s+\*\*/g, (match) => {
+		fixed = fixed.replace(/\*\*([^*:\n]+?)\s+\*\*/g, (match, p1) => {
 			count++;
-			return match.replace(/\*\*([^*:\n]+?)\s+\*\*/g, '**$1**');
+			return `**${p1}**`;
+		});
+
+		// 패턴 1: *text: * → **text:** (single asterisk, not preceded by *)
+		fixed = fixed.replace(/(?<!\*)\*([^*\n]+?):\s+\*(?!\*)/g, (match, p1) => {
+			count++;
+			return `**${p1}:**`;
+		});
+
+		// 패턴 2: *text * (콜론 없음, single asterisk)
+		fixed = fixed.replace(/(?<!\*)\*([^*:\n]+?)\s+\*(?!\*)/g, (match, p1) => {
+			count++;
+			return `**${p1}**`;
+		});
+
+		// 패턴 3: _text: _ → **text:**
+		fixed = fixed.replace(/_([^_\n]+?):\s*_/g, (match, p1) => {
+			count++;
+			return `**${p1}:**`;
+		});
+
+		// 패턴 4: _text _ (콜론 없음) → **text**
+		fixed = fixed.replace(/_([^_:\n]+?)\s+_/g, (match, p1) => {
+			count++;
+			return `**${p1}**`;
 		});
 
 		// 패턴 7: `text: ` → `text:`
-		fixed = fixed.replace(/`([^`\n]+?):\s*`/g, (match) => {
+		fixed = fixed.replace(/`([^`\n]+?):\s*`/g, (match, p1) => {
 			count++;
-			return match.replace(/`([^`\n]+?):\s*`/g, '`$1:`');
+			return `\`${p1}:\``;
 		});
 
 		// 패턴 8: `text ` (콜론 없음) → `text`
-		fixed = fixed.replace(/`([^`:\n]+?)\s+`/g, (match) => {
+		fixed = fixed.replace(/`([^`:\n]+?)\s+`/g, (match, p1) => {
 			count++;
-			return match.replace(/`([^`:\n]+?)\s+`/g, '`$1`');
+			return `\`${p1}\``;
 		});
 
 		// 코드 블록 복원
