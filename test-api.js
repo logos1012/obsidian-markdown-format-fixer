@@ -33,7 +33,7 @@ const systemPrompt = `옵시디안에서 읽을 마크다운 문서를 깔끔하
 수정된 마크다운만 출력하세요. 설명 없이, 줄 구조 그대로 유지.`;
 
 const requestBody = JSON.stringify({
-    model: 'claude-3-haiku-20240307',
+    model: 'claude-sonnet-4-20250514',
     max_tokens: 4096,
     system: systemPrompt,
     messages: [
