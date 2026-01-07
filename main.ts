@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, requestUrl } from 'obsidian';
 
 interface MarkdownFormatFixerSettings {
 	claudeApiKey: string;
@@ -101,7 +101,8 @@ export default class MarkdownFormatFixerPlugin extends Plugin {
 	 * Claude API를 사용하여 마크다운 수정
 	 */
 	async fixWithClaude(content: string): Promise<string> {
-		const response = await fetch('https://api.anthropic.com/v1/messages', {
+		const response = await requestUrl({
+			url: 'https://api.anthropic.com/v1/messages',
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -138,12 +139,12 @@ ${content}`
 			})
 		});
 
-		if (!response.ok) {
-			const error = await response.json();
+		if (response.status !== 200) {
+			const error = response.json;
 			throw new Error(error.error?.message || `API 오류: ${response.status}`);
 		}
 
-		const data = await response.json();
+		const data = response.json;
 		return data.content[0].text;
 	}
 }
