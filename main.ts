@@ -1,13 +1,20 @@
-import { App, Editor, MarkdownView, Notice, Plugin } from 'obsidian';
+import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 
-interface FixResult {
-	fixed: string;
-	count: number;
+interface MarkdownFormatFixerSettings {
+	claudeApiKey: string;
+}
+
+const DEFAULT_SETTINGS: MarkdownFormatFixerSettings = {
+	claudeApiKey: ''
 }
 
 export default class MarkdownFormatFixerPlugin extends Plugin {
+	settings: MarkdownFormatFixerSettings;
+
 	async onload() {
 		console.log('Loading Markdown Format Fixer plugin');
+
+		await this.loadSettings();
 
 		// 리본 아이콘 추가
 		this.addRibbonIcon('wand-glyph', 'Fix Markdown Format', () => {
@@ -22,10 +29,21 @@ export default class MarkdownFormatFixerPlugin extends Plugin {
 				this.fixMarkdownFormatInEditor(editor);
 			}
 		});
+
+		// 설정 탭 추가
+		this.addSettingTab(new MarkdownFormatFixerSettingTab(this.app, this));
 	}
 
 	onunload() {
 		console.log('Unloading Markdown Format Fixer plugin');
+	}
+
+	async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
 	}
 
 	/**
@@ -40,93 +58,143 @@ export default class MarkdownFormatFixerPlugin extends Plugin {
 		}
 
 		const editor = activeView.editor;
-		this.fixMarkdownFormatInEditor(editor);
+		await this.fixMarkdownFormatInEditor(editor);
 	}
 
 	/**
 	 * 에디터의 마크다운 서식을 수정
 	 */
-	fixMarkdownFormatInEditor(editor: Editor) {
-		const content = editor.getValue();
-		const result = this.fixPatterns(content);
+	async fixMarkdownFormatInEditor(editor: Editor) {
+		if (!this.settings.claudeApiKey) {
+			new Notice('⚠️ Claude API 키를 먼저 설정해주세요');
+			return;
+		}
 
-		if (result.count > 0) {
-			editor.setValue(result.fixed);
-			new Notice(`✓ ${result.count}개 항목이 수정되었습니다`);
-		} else {
-			new Notice('수정할 항목이 없습니다');
+		const content = editor.getValue();
+
+		if (!content.trim()) {
+			new Notice('수정할 내용이 없습니다');
+			return;
+		}
+
+		const loadingNotice = new Notice('🤖 Claude가 마크다운을 수정하고 있습니다...', 0);
+
+		try {
+			const fixed = await this.fixWithClaude(content);
+
+			if (fixed && fixed !== content) {
+				editor.setValue(fixed);
+				loadingNotice.hide();
+				new Notice('✓ 마크다운 서식이 수정되었습니다');
+			} else {
+				loadingNotice.hide();
+				new Notice('수정할 항목이 없습니다');
+			}
+		} catch (error) {
+			loadingNotice.hide();
+			console.error('Error fixing markdown:', error);
+			new Notice(`❌ 오류: ${error.message}`);
 		}
 	}
 
 	/**
-	 * 잘못된 마크다운 패턴을 수정
-	 * @param content 원본 마크다운 텍스트
-	 * @returns 수정된 텍스트와 수정 개수
+	 * Claude API를 사용하여 마크다운 수정
 	 */
-	fixPatterns(content: string): FixResult {
-		let fixed = content;
-		let count = 0;
+	async fixWithClaude(content: string): Promise<string> {
+		const response = await fetch('https://api.anthropic.com/v1/messages', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-api-key': this.settings.claudeApiKey,
+				'anthropic-version': '2023-06-01'
+			},
+			body: JSON.stringify({
+				model: 'claude-3-haiku-20240307',
+				max_tokens: 4096,
+				messages: [
+					{
+						role: 'user',
+						content: `다음 마크다운 텍스트에서 잘못된 서식을 수정해주세요. 수정이 필요한 패턴:
 
-		// 코드 블록을 임시로 보호
-		const codeBlocks: string[] = [];
-		fixed = fixed.replace(/```[\s\S]*?```/g, (match) => {
-			codeBlocks.push(match);
-			return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+1. *텍스트: * → **텍스트:**
+2. *텍스트 * → **텍스트**
+3. _텍스트: _ → **텍스트:**
+4. _텍스트 _ → **텍스트**
+5. **텍스트: ** → **텍스트:**
+6. **텍스트 ** → **텍스트**
+7. \`텍스트: \` → \`텍스트:\`
+8. \`텍스트 \` → \`텍스트\`
+
+주의사항:
+- 코드 블록(\`\`\`)안의 내용은 수정하지 마세요
+- 원본 텍스트의 구조와 내용을 유지하세요
+- 오직 위의 패턴만 수정하세요
+- 수정된 마크다운만 출력하고, 설명은 추가하지 마세요
+
+마크다운:
+${content}`
+					}
+				]
+			})
 		});
 
-		// 패턴 5: **text: ** → **text:** (먼저 처리)
-		fixed = fixed.replace(/\*\*([^*\n]+?):\s+\*\*/g, (match, p1) => {
-			count++;
-			return `**${p1}:**`;
-		});
+		if (!response.ok) {
+			const error = await response.json();
+			throw new Error(error.error?.message || `API 오류: ${response.status}`);
+		}
 
-		// 패턴 6: **text ** (콜론 없음) → **text**
-		fixed = fixed.replace(/\*\*([^*:\n]+?)\s+\*\*/g, (match, p1) => {
-			count++;
-			return `**${p1}**`;
-		});
+		const data = await response.json();
+		return data.content[0].text;
+	}
+}
 
-		// 패턴 1: *text: * → **text:** (single asterisk, not preceded by *)
-		fixed = fixed.replace(/(?<!\*)\*([^*\n]+?):\s+\*(?!\*)/g, (match, p1) => {
-			count++;
-			return `**${p1}:**`;
-		});
+class MarkdownFormatFixerSettingTab extends PluginSettingTab {
+	plugin: MarkdownFormatFixerPlugin;
 
-		// 패턴 2: *text * (콜론 없음, single asterisk)
-		fixed = fixed.replace(/(?<!\*)\*([^*:\n]+?)\s+\*(?!\*)/g, (match, p1) => {
-			count++;
-			return `**${p1}**`;
-		});
+	constructor(app: App, plugin: MarkdownFormatFixerPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
 
-		// 패턴 3: _text: _ → **text:**
-		fixed = fixed.replace(/_([^_\n]+?):\s*_/g, (match, p1) => {
-			count++;
-			return `**${p1}:**`;
-		});
+	display(): void {
+		const { containerEl } = this;
 
-		// 패턴 4: _text _ (콜론 없음) → **text**
-		fixed = fixed.replace(/_([^_:\n]+?)\s+_/g, (match, p1) => {
-			count++;
-			return `**${p1}**`;
-		});
+		containerEl.empty();
 
-		// 패턴 7: `text: ` → `text:`
-		fixed = fixed.replace(/`([^`\n]+?):\s*`/g, (match, p1) => {
-			count++;
-			return `\`${p1}:\``;
-		});
+		containerEl.createEl('h2', { text: 'Markdown Format Fixer 설정' });
 
-		// 패턴 8: `text ` (콜론 없음) → `text`
-		fixed = fixed.replace(/`([^`:\n]+?)\s+`/g, (match, p1) => {
-			count++;
-			return `\`${p1}\``;
-		});
+		new Setting(containerEl)
+			.setName('Claude API Key')
+			.setDesc('Anthropic Claude API 키를 입력하세요. API 키는 https://console.anthropic.com/ 에서 발급받을 수 있습니다.')
+			.addText(text => text
+				.setPlaceholder('sk-ant-...')
+				.setValue(this.plugin.settings.claudeApiKey)
+				.onChange(async (value) => {
+					this.plugin.settings.claudeApiKey = value;
+					await this.plugin.saveSettings();
+				}));
 
-		// 코드 블록 복원
-		fixed = fixed.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
-			return codeBlocks[parseInt(index)];
-		});
+		containerEl.createEl('h3', { text: '사용 방법' });
 
-		return { fixed, count };
+		const usageEl = containerEl.createEl('div', { cls: 'markdown-format-fixer-usage' });
+		usageEl.createEl('p', { text: '1. 리본 아이콘(🪄) 클릭' });
+		usageEl.createEl('p', { text: '2. 명령어 팔레트(Cmd/Ctrl+P) → "Fix Markdown Format"' });
+
+		containerEl.createEl('h3', { text: '수정되는 패턴' });
+
+		const patternsEl = containerEl.createEl('div', { cls: 'markdown-format-fixer-patterns' });
+		patternsEl.createEl('p', { text: '• *텍스트: * → **텍스트:**' });
+		patternsEl.createEl('p', { text: '• *텍스트 * → **텍스트**' });
+		patternsEl.createEl('p', { text: '• _텍스트: _ → **텍스트:**' });
+		patternsEl.createEl('p', { text: '• _텍스트 _ → **텍스트**' });
+		patternsEl.createEl('p', { text: '• **텍스트: ** → **텍스트:**' });
+		patternsEl.createEl('p', { text: '• **텍스트 ** → **텍스트**' });
+		patternsEl.createEl('p', { text: '• `텍스트: ` → `텍스트:`' });
+		patternsEl.createEl('p', { text: '• `텍스트 ` → `텍스트`' });
+
+		containerEl.createEl('p', {
+			text: '⚠️ 코드 블록 안의 내용은 수정되지 않습니다.',
+			cls: 'mod-warning'
+		});
 	}
 }
