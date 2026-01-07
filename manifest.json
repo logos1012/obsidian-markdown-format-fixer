@@ -1,0 +1,10 @@
+{
+  "id": "markdown-format-fixer",
+  "name": "Markdown Format Fixer",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "자동으로 잘못된 마크다운 서식을 수정합니다 (예: *text: * → **text:**)",
+  "author": "Workbetterlife",
+  "authorUrl": "https://workbetterlife.com",
+  "isDesktopOnly": false
+}
