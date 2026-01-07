@@ -1,6 +1,6 @@
 {
   "name": "markdown-format-fixer",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "description": "Obsidian plugin to automatically fix malformed markdown formatting",
   "main": "main.js",
   "scripts": {
