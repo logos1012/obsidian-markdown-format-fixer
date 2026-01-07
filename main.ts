@@ -1,7 +1,13 @@
-import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, requestUrl } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl } from 'obsidian';
 
 interface MarkdownFormatFixerSettings {
 	claudeApiKey: string;
+}
+
+interface TokenEstimate {
+	inputTokens: number;
+	outputTokens: number;
+	estimatedCost: number;
 }
 
 const DEFAULT_SETTINGS: MarkdownFormatFixerSettings = {
@@ -47,6 +53,29 @@ export default class MarkdownFormatFixerPlugin extends Plugin {
 	}
 
 	/**
+	 * 토큰 사용량과 비용 추정
+	 */
+	estimateTokens(content: string, systemPrompt: string): TokenEstimate {
+		// 대략적인 토큰 계산
+		// 영어: ~4자 = 1토큰, 한글: ~1.5자 = 1토큰, 평균 2.5자 = 1토큰으로 계산
+		const inputChars = content.length + systemPrompt.length;
+		const inputTokens = Math.ceil(inputChars / 2.5);
+
+		// 출력 토큰은 입력과 비슷한 길이로 예상
+		const outputTokens = Math.ceil(content.length / 2.5);
+
+		// Claude Sonnet 4 가격 (per million tokens)
+		const inputCostPerMTok = 3.00;   // $3 per 1M input tokens
+		const outputCostPerMTok = 15.00; // $15 per 1M output tokens
+
+		const estimatedCost =
+			(inputTokens / 1000000 * inputCostPerMTok) +
+			(outputTokens / 1000000 * outputCostPerMTok);
+
+		return { inputTokens, outputTokens, estimatedCost };
+	}
+
+	/**
 	 * 현재 활성 파일의 마크다운 서식을 수정
 	 */
 	async fixMarkdownFormat() {
@@ -74,6 +103,27 @@ export default class MarkdownFormatFixerPlugin extends Plugin {
 
 		if (!content.trim()) {
 			new Notice('수정할 내용이 없습니다');
+			return;
+		}
+
+		// 시스템 프롬프트 (토큰 추정에 사용)
+		const systemPrompt = `옵시디안에서 읽을 마크다운 문서를 깔끔하게 정리해주세요.
+
+문제: 볼드(**)나 이탤릭(*)처리에서 띄어쓰기가 잘못 들어가 서식이 제대로 작동하지 않습니다.
+해결: 닫는 기호 앞의 불필요한 공백을 제거하고, 이탤릭은 볼드로 통일해주세요.
+
+수정된 마크다운만 출력하세요. 설명 없이, 줄 구조 그대로 유지.`;
+
+		// 토큰 사용량 추정
+		const estimate = this.estimateTokens(content, systemPrompt);
+
+		// 사용자 확인
+		const confirmed = await new Promise<boolean>((resolve) => {
+			new TokenEstimateModal(this.app, estimate, resolve).open();
+		});
+
+		if (!confirmed) {
+			new Notice('작업이 취소되었습니다');
 			return;
 		}
 
@@ -147,6 +197,81 @@ export default class MarkdownFormatFixerPlugin extends Plugin {
 		}
 
 		return textContent.text;
+	}
+}
+
+class TokenEstimateModal extends Modal {
+	estimate: TokenEstimate;
+	onConfirm: (result: boolean) => void;
+
+	constructor(app: App, estimate: TokenEstimate, onConfirm: (result: boolean) => void) {
+		super(app);
+		this.estimate = estimate;
+		this.onConfirm = onConfirm;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		contentEl.createEl('h2', { text: '🔍 토큰 사용량 예상' });
+
+		contentEl.createEl('p', {
+			text: '이 작업으로 예상되는 토큰 사용량과 비용입니다:',
+			cls: 'token-estimate-description'
+		});
+
+		const infoEl = contentEl.createDiv({ cls: 'token-estimate-info' });
+
+		infoEl.createEl('p', {
+			text: `📥 예상 입력 토큰: ${this.estimate.inputTokens.toLocaleString()}`
+		});
+
+		infoEl.createEl('p', {
+			text: `📤 예상 출력 토큰: ${this.estimate.outputTokens.toLocaleString()}`
+		});
+
+		infoEl.createEl('p', {
+			text: `📊 총 토큰: ${(this.estimate.inputTokens + this.estimate.outputTokens).toLocaleString()}`
+		});
+
+		infoEl.createEl('p', {
+			text: `💰 예상 비용: $${this.estimate.estimatedCost.toFixed(6)} (약 ₩${(this.estimate.estimatedCost * 1300).toFixed(2)})`,
+			cls: 'token-estimate-cost'
+		});
+
+		contentEl.createEl('p', {
+			text: '※ 실제 토큰 사용량과 비용은 다를 수 있습니다.',
+			cls: 'mod-warning'
+		});
+
+		const buttonContainer = contentEl.createDiv({ cls: 'modal-button-container' });
+		buttonContainer.style.display = 'flex';
+		buttonContainer.style.gap = '10px';
+		buttonContainer.style.marginTop = '20px';
+		buttonContainer.style.justifyContent = 'flex-end';
+
+		const cancelBtn = buttonContainer.createEl('button', {
+			text: '취소'
+		});
+		cancelBtn.addEventListener('click', () => {
+			this.close();
+			this.onConfirm(false);
+		});
+
+		const confirmBtn = buttonContainer.createEl('button', {
+			text: '계속 진행',
+			cls: 'mod-cta'
+		});
+		confirmBtn.addEventListener('click', () => {
+			this.close();
+			this.onConfirm(true);
+		});
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
 	}
 }
 
